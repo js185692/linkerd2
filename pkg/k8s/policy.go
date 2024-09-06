@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/net"
 
 	policyv1 "github.com/linkerd/linkerd2/controller/gen/apis/policy/v1alpha1"
 	serverv1beta2 "github.com/linkerd/linkerd2/controller/gen/apis/server/v1beta2"
@@ -249,7 +250,8 @@ func serverIncludesPod(server serverv1beta2.Server, pods []corev1.Pod) bool {
 		if selector.Matches(labels.Set(pod.Labels)) {
 			for _, container := range pod.Spec.Containers {
 				for _, p := range container.Ports {
-					if server.Spec.Port.IntVal == p.ContainerPort || server.Spec.Port.StrVal == p.Name {
+					if server.Spec.Port.IntVal == p.ContainerPort || server.Spec.Port.StrVal == p.Name ||
+						podInServerPortRange(server, p.ContainerPort) {
 						return true
 					}
 				}
@@ -257,6 +259,17 @@ func serverIncludesPod(server serverv1beta2.Server, pods []corev1.Pod) bool {
 		}
 	}
 	return false
+}
+
+// podInServerPortRange returns true if the container port falls within the Server
+// port range
+func podInServerPortRange(server serverv1beta2.Server, containerPort int32) bool {
+	pr, err := net.ParsePortRange(server.Spec.Port.StrVal)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to parse port as a range of ports in Server/%s: %s\n", server.Name, err)
+		return false
+	}
+	return pr.Contains(int(containerPort))
 }
 
 // getPodsForResourceOrKind is similar to getPodsForResource, but also supports
